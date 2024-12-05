@@ -1,0 +1,637 @@
+---
+title: "AMES Housing Prices Analysis"
+author: "Esther Waweru - 171444"
+date: "2024-10-23"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+## Load library
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(MASS)
+library(caret)
+library(reshape2)
+library(car)
+library(GGally)
+library(caTools)
+library(randomForest)
+library(onehot)
+```
+
+## Loading Data
+
+```{r}
+path <- "C://Users//User NA//OneDrive//Documents//Master//Statistics in Practice Seminar//Data Analysis//data//data//train.csv"
+
+path2 <- "C://Users//User NA//OneDrive//Documents//Master//Statistics in Practice Seminar//Data Analysis//data//data//test.csv"
+```
+
+```{r}
+#train
+train <- read.csv(path)
+head(train)
+```
+
+```{r}
+#check for no. of rows and no. of columns
+dim(train)
+```
+
+Our data has 1460 observations and 81 variables.
+
+```{r}
+test <- read.csv(path2)
+head(test)
+```
+
+```{r}
+dim(test)
+```
+
+## Exploratory Data Analysis
+
+**TRAIN**
+
+```{r}
+colnames(train)
+```
+
+```{r}
+#drop ID column
+
+train <- train[,-c(1)]
+head(train)
+```
+
+```{r}
+colnames(train)
+```
+
+-   Missing Value
+
+```{r}
+#Check for missing values
+colSums(is.na(train))
+```
+
+```{r}
+#Check null rows in the basement columns
+
+cols_to_check <- c("BsmtQual","BsmtCond","BsmtExposure",  "BsmtFinType1","BsmtFinType2")
+
+# Check for NA in those specific columns
+na_in_columns <- apply(train[cols_to_check], 1, function(row) any(is.na(row)))
+
+# Display rows where any of the specified columns have NA values
+train[na_in_columns, ]
+
+
+```
+
+```{r}
+#Handle missing data for the basement value.
+
+#Most have the same number of missing values except BSMT exposure and BSMT FinType2.For BSMT FintType2 would make sense because the building might have only one basement hence the NA. For exposure, we assume that there was an error during data entry and that N/A meant no exposure for that specific row rather than no basement. Therefore we change that specific row
+
+# Change the value from NA to "No" in bsmt Exposure
+train[949, 32] <- "No"
+
+# Replace NA with "No basement" in the specified columns
+train[, cols_to_check] <- lapply(train[, cols_to_check], function(col) {
+  col[is.na(col)] <- "No basement"
+  return(col)
+})
+
+colSums(is.na(train[30:35]))
+```
+
+```{r}
+#Fireplace
+#Check null rows in the fireplace columns
+
+cols_2 <- c("Fireplaces","FireplaceQu")
+
+# Check for NA in those specific columns
+na_cols2 <- apply(train[cols_2], 1, function(row) any(is.na(row)))
+
+# Display rows where any of the specified columns have NA values
+train[na_cols2, ]
+
+```
+
+```{r}
+#All columns that have NA in fireplaceQu which from data description means no fireplace have quantity 0 in the number of fireplaces. We can therefore replace NA with no fireplace
+
+# Replace NA with "No basement" in the fireplace quality column
+train[,57][is.na(train[,57])] <- "No basement"
+
+colSums(is.na(train[57]))
+```
+
+```{r}
+#For the garage datatypes NA was for no garage so we will replace NA with no garage for all columns except GarageYrBlt
+
+cols_3 <- c("GarageType","GarageFinish","GarageQual",   "GarageCond")
+
+# Replace NA with "No basement" in the specified columns
+train[, cols_3] <- lapply(train[, cols_3], function(col) {
+  col[is.na(col)] <- "No Garage"
+  return(col)
+})
+
+#For GarageYrBlt NA replace with median
+# Calculate the median, ignoring NA values
+median_year_built <- median(train$GarageYrBlt, na.rm = TRUE)
+
+# Replace NA with the median year built
+train$GarageYrBlt[is.na(train$GarageYrBlt)] <- round(median_year_built)
+#"GarageYrBlt"  
+
+colSums(is.na(train))
+```
+
+```{r}
+# Replace NA in LotFrontage, Alley,PoolQC,Fence and MiscFeature 
+
+#LotFrontage
+# Replace with mean
+mean_lot <- round(mean(train$LotFrontage, na.rm = TRUE))
+train$LotFrontage[is.na(train$LotFrontage)] <- mean_lot
+
+#Alley 
+train[,6][is.na(train[,6])] <- "No alley access"
+
+#PoolQC
+train[,72][is.na(train[,72])] <- "No Pool"
+
+#Fence
+train[,73][is.na(train[,73])] <- "No Fence"
+
+#MiscFeature
+train[,74][is.na(train[,74])] <- "None"
+
+colSums(is.na(train))
+
+```
+
+```{r}
+#replace missing values of MasVnrType with None and MasVnrArea with the mean
+
+#MasVnrType 
+train[,25][is.na(train[,25])] <- "None"
+
+# Replace MasVnrArea with mean
+mean_area <- round(mean(train$MasVnrArea, na.rm = TRUE))
+train$MasVnrArea[is.na(train$MasVnrArea)] <- mean_area
+
+#drop remaining missing value in te electrical column
+train <- na.omit(train)
+```
+
+```{r}
+sum(is.na(train))
+```
+
+There are no missing values.
+
+```{r}
+dim(train)
+```
+
+-   Check Data type
+
+```{r}
+#check for data types
+
+str(train)
+
+```
+
+```{r}
+# Extract columns with character datatype
+col1 <- train[, sapply(train, is.character)]
+
+col <- colnames(col1)
+
+factor_columns <- c('MSSubClass','OverallQual','OverallCond',col)
+
+# Convert specified columns from factor
+train[factor_columns] <- lapply(train[factor_columns], as.factor)
+
+str(train)
+
+```
+
+-   Check outliers
+
+```{r}
+#Numeric values
+num_cols <- train[, sapply(train, is.numeric)]
+num_c <- colnames(num_cols)
+
+# Create boxplots for each variable in the dataset
+for(i in 1 : length(num_c)) {
+boxplot(num_cols[[i]], main = num_c[i],
+xlab = num_c[i])
+}
+```
+
+Most of our numerical variables have outliers which we will deal with later
+
+```{r}
+summary(train)
+```
+
+-   Categorical Variables
+
+```{r}
+
+cat_c <- names(train)[sapply(train, is.factor)]
+
+# Create barplot for each categorical variable in the dataset
+for(col in cat_c) {
+ bars <- ggplot(train, aes(x = train[[col]])) +
+    geom_bar(fill = "blue") +
+    labs(title = paste("Bar Plot of", col), x = col, y = "Frequency") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ 
+ print(bars)
+}
+```
+
+1.  Most type of dwelling is 1-STORY 1946 & NEWER ALL STYLES, followed by 2-STORY 1946 & NEWER and 1-1/2 STORY FINISHED ALL AGES.
+
+2.  Most houses are in the Residential Low Density zone.
+
+3.  Majority of the houses have paved street and no alley access.
+
+4.  Most houses have a regular shape followed by slightly irregular
+
+5.  For LandContour, majority of the houses are near flat;For utilities majority have all public utilities - Electricity, Water, Gas and Sewer.
+
+6.  Majority of the houses lot configuration is inside and have gentle slope.
+
+7.  Majority of the houses are located in North Ames, are in a normal proximity to various conditions.
+
+8.  Most of the buildings are single family detached, one story followed by two story.
+
+9.  Rates the overall material and finish of the house are mainly in the range average(5),above average(6) and good(7) and overall condition of the house is mainly average(5).
+
+10. Type of roof is mainly Gable with most of the roof material as Standard (Composite) Shingle
+
+11. Most exterior covering of houses is Vinyl Siding and have no Masonry veneer
+
+-   Numerical variables
+
+```{r}
+numer_c <- names(train)[sapply(train, is.numeric)]
+
+# Create barplot for each categorical variable in the dataset
+for(num in numer_c) {
+ density <- ggplot(train, aes(x = train[[num]])) +
+    geom_density(fill = "lightblue") +
+    labs(title = paste("Distribution Plot of", num), x = num, y = "Density") +
+    theme_minimal()
+ print(density)
+}
+```
+
+-   Target Variable
+
+```{r}
+ggplot(train, aes(x = train$SalePrice)) + 
+  geom_histogram()+
+  labs(title = "Distribution of House Prices", x = "Price") +
+  scale_x_continuous(labels = scales::comma)
+  theme_minimal()
+```
+
+The distribution of house prices is rightly skewed, with more houses ranging below 200000.
+
+-   Sale Price vs Year Sold
+
+```{r}
+
+ggplot(train, aes(x = as.factor(train$YrSold), y = train$SalePrice, color = as.factor(train$YrSold))) +
+  geom_boxplot(show.legend = FALSE)+
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal()+
+  labs(title = "Sale Price vs Year of Sale", y = "Sale Price", x = "Year Sold")
+```
+
+There is an almost similar pattern across the years when it comes to Sale Prices.
+
+-   Sale Price VS Year Built VS Renovated
+
+```{r}
+train <- train %>% mutate(Renovated = ifelse(YearBuilt == YearRemodAdd, "No", "Yes"))
+
+#create plot
+ggplot(train, aes(x= train$YearBuilt, y = train$SalePrice,color=train$Renovated))+
+      geom_point()+
+      labs(title="Sale Price vs. Year Built",x = "Year Built",y = "Sale Price", color = 'Renovated')+
+      theme_minimal()+
+  scale_color_manual(values = c("Yes" = "skyblue", "No" = "red"))
+
+
+
+```
+
+From the plot, we can say that newer houses are sold at higher prices and house build after 1940 were mostly renovated later.
+
+-   Sale Price vs Overall Quality
+
+```{r}
+# Define custom labels for the quality scale
+quality_labels <- c("1" = "Very Poor", "2" = "Poor", "3" = "Fair", "4" = "Below Average",
+                    "5" = "Average", "6" = "Above Average", "7" = "Good", "8" = "Very Good",
+                    "9" = "Excellent", "10" = "Very Excellent")
+
+
+ggplot(train, aes(x= train$OverallQual, y= train$SalePrice, color=train$OverallQual))+
+  geom_jitter()+
+  scale_x_discrete()+
+  labs(x = "Quality (Scale 1-10)",y= "Sale Price",title="Overall Quality vs. Sale Price",color = "Overall Quality")+
+  coord_flip()+
+  scale_color_manual(values = rainbow(10), labels = quality_labels) +
+  theme_minimal()
+
+```
+
+Houses with Very Good, Excellent and Very Excellent Quality are more expensive.
+
+-   Sale Price vs Overall Condition
+
+```{r}
+ggplot(train, aes(x= train$OverallCond, y= train$SalePrice, color=train$OverallCond))+
+  geom_jitter()+
+  scale_x_discrete()+
+  labs(x = "Condition (Scale 1-10)",y= "Sale Price",title="Overall Condition vs. Sale Price",color = "Overall Condition")+
+  coord_flip()+
+  scale_color_manual(values = rainbow(10), labels = quality_labels)+
+  theme_minimal()
+
+```
+
+Houses with Very Good, Excellent and Very Excellent Overall Condition are more expensive.
+
+-   Sale Price VS Neighbourhood
+
+```{r}
+ggplot(train, aes(x = train$Neighborhood, y = train$SalePrice))+
+  geom_boxplot(aes(color = train$Neighborhood),show.legend = FALSE)+
+  scale_y_continuous(labels = scales::comma)+
+  labs(x = "Neighbourhood", y = "Sale Price", title = "Sale Price VS Neighbourhood")+
+  theme_minimal()+
+  coord_flip()
+```
+
+Northridge Heights and Stony Brook are the most expensive neighbourhoods as per the Sale Prices.
+
+-   Correlation
+
+1.  Size Attributes : Explore size attributes for houses and their correlation with sale price.
+
+
+```{r}
+
+size = c('LotFrontage','LotArea','MasVnrArea','BsmtFinSF1','BsmtFinSF2','BsmtUnfSF','TotalBsmtSF','X1stFlrSF','X2ndFlrSF','LowQualFinSF','GrLivArea','BsmtFullBath','BsmtHalfBath','FullBath',
+'HalfBath','BedroomAbvGr','KitchenAbvGr','TotRmsAbvGrd','Fireplaces','GarageCars','GarageArea', 'WoodDeckSF','OpenPorchSF','EnclosedPorch','X3SsnPorch','ScreenPorch','PoolArea')
+       
+# Calculate correlations with SalePrice
+size_corr <- train %>%
+  dplyr::select(all_of(size), "SalePrice") %>%
+  cor() %>%
+  as.data.frame() %>%
+  dplyr::select("SalePrice") %>%
+  arrange(desc("SalePrice")) 
+
+# Remove the row where rowname is SalePrice
+size_corr <- size_corr[-which(rownames(size_corr) == "SalePrice"), , drop = FALSE]
+
+
+# Add column names for ggplot
+size_corr$Attribute <- rownames(size_corr)
+rownames(size_corr) <- NULL
+
+# Create the plot
+ggplot(size_corr, aes(x = SalePrice, y = reorder(Attribute, SalePrice))) +
+  geom_bar(stat = "identity", aes(fill = SalePrice), color = "black") +
+  scale_fill_gradientn(colors = rev(RColorBrewer::brewer.pal(11, "Spectral")), 
+                       name = "Correlation") +
+  labs(
+    title = "Correlations between size attributes and sale price",
+    x = "Correlation With Price (0 to 1)",
+    y = "Home Attribute"
+  ) +
+  theme_minimal()
+```
+
+Above grade (ground) living area, garage Cars, Garage Area, Total Basement Area and First Floor square feet are highly correlated with the Sale Price.
+
+Full bathrooms above grade, Total Rooms above Grade, Masonry veneer area and no. of fireplaces are moderately correlated with the sale Price.
+
+Type 2 finished square feet,Basement half bathrooms,Low quality finished square feet (all floors) ,Enclosed porch area in square feet and KitchenAbvGr are negatively correlated with Sale Price.
+
+##  Feature Engineering
+
+```{r}
+#The following 3 features describe the Total area of the house so a good idea is to sum them to a new variable and get rid of them after
+
+train$TotalArea<-train$X1stFlrSF+train$X2ndFlrSF+train$TotalBsmtSF
+
+#combine are those that describe the finished square feet area of the house.
+train$TotalFinSF<-train$BsmtFinSF1+train$BsmtFinSF2+train$X1stFlrSF+train$X2ndFlrSF
+
+#delete the features that we used to make our two new variables
+train$BsmtFinSF1<-NULL
+train$BsmtFinSF2<-NULL
+train$X1stFlrSF<-NULL
+train$X2ndFlrSF<-NULL
+train$TotalBsmtSF<-NULL
+
+dim(train)
+```
+
+```{r}
+#variables that describe the number full baths and half baths of the house can merge to one column
+train$TotBath<-train$BsmtFullBath+(0.5*train$BsmtHalfBath)+train$FullBath+(0.5*train$HalfBath)
+
+#Also Porches
+train$TotPorch<-train$OpenPorchSF+train$EnclosedPorch+train$X3SsnPorch+train$ScreenPorch+train$WoodDeckSF
+
+#Remove variables used 
+train$BsmtFullBath<-NULL
+train$BsmtHalfBath<-NULL
+train$HalfBath<-NULL
+train$FullBath<-NULL
+train$OpenPorchSF<-NULL
+train$EnclosedPorch<-NULL
+train$X3SsnPorch<-NULL
+train$ScreenPorch<-NULL
+train$WoodDeckSF<-NULL
+
+dim(train)
+
+```
+
+```{r}
+#seperate those houses that have a pool with those who don't. It's pretty obvious that if we look for houses with pool we will expect higher SalePrize so it makes sense to add a new binary varible
+
+train$Pool<-c(rep(2,1459))
+for (i in 1:nrow(train)){
+  if (train$PoolArea[i]==0) {
+    train$Pool[i]<-c(0)
+  } else {
+    train$Pool[i]<-c(1)
+  }
+}
+train$Pool<-as.factor(train$Pool)
+
+train$PoolQC<-NULL
+train$PoolArea<-NULL
+dim(train)
+```
+
+
+```{r}
+# Function to calculate mode percentage for a categorical variable
+mode_percentage <- function(column) {
+  # Get frequency table
+  freq_table <- table(column)
+  
+  # Find the mode (most frequent value)
+  mode_value <- names(freq_table)[which.max(freq_table)]
+  
+  # Calculate the mode's percentage
+  mode_percent <- max(freq_table) / length(column) * 100
+  
+  # Output result as a named vector
+  result <- c(Mode = mode_value, Percentage = mode_percent)
+  return(result)
+}
+
+# Apply the function to each categorical column in the data frame
+cat_columns <- sapply(train, is.factor) | sapply(train, is.character)  # Identify categorical columns
+mode_percentages <- sapply(train[, cat_columns], mode_percentage)
+
+# Print the result
+print(mode_percentages)
+
+```
+
+```{r}
+#variables which their mode is more than 90% of other categories are useless and we are going to delete them.
+
+remove_cols <- c('Street','Alley','Utilities','LandSlope','Condition2','RoofMatl','Heating', 'CentralAir','Electrical','Functional','GarageCond','PavedDrive','MiscFeature','Pool')
+
+t_data <- train[, !names(train) %in% remove_cols]
+dim(t_data)
+```
+
+
+```{r}
+#One hot encode categorical variables
+cat_dat <- t_data[,sapply(t_data, is.factor)]
+num_dat <- t_data[,sapply(t_data, is.numeric)]
+                   
+encode <- onehot(cat_dat)
+cat_encoded <- as.data.frame(predict(encode, cat_dat))
+
+# Combine encoded categorical data with numeric data
+train_data <- cbind(num_dat, cat_encoded)
+```
+
+
+
+## Model Building
+
+```{r}
+# Fit an initial full model with all predictors
+full_model <- lm(SalePrice ~ ., data = train_data)
+summary(full_model)
+
+```
+
+
+
+```{r}
+#Perform stepwise regression using AIC
+stepwise_model <- stepAIC(full_model, direction = "both", trace = FALSE)
+summary(stepwise_model)
+```
+
+
+
+```{r}
+# Check for multicollinearity
+vif_values <- vif(stepwise_model)
+vif_values
+```
+
+```{r}
+# Remove high VIF variables in a loop (similar to the previous function)
+remove_high_vif <- function(model, threshold = 5) {
+  vif_values <- vif(model)
+  
+  # Loop to remove variables with high VIF
+  while(any(vif_values > threshold)) {
+    # Find the variable with the highest VIF
+    highest_vif_var <- names(which.max(vif_values))
+    cat("Removing variable:", highest_vif_var, "with VIF:", max(vif_values), "\n")
+    
+    # Update formula to exclude the high-VIF variable
+    model_formula <- as.formula(
+      paste(". ~ . -", highest_vif_var),
+      env = environment(formula(model))
+    )
+    # Refit the model
+    model <- update(model, model_formula)
+    vif_values <- vif(model)
+  }
+  
+  return(model)
+}
+```
+
+```{r}
+# Apply the VIF removal function on the stepwise model
+final_model <- remove_high_vif(stepwise_model, threshold = 5)
+summary(final_model)
+```
+
+##  Fine Tune Model
+
+```{r}
+# Apply log transformation to the target variable 
+train_data$log_sale <- log(train_data$SalePrice) 
+```
+
+
+
+```{r}
+# Step 2: Extract the formula from `final_model`, removing the response part
+predictor_formula <- reformulate(attr(terms(final_model), "term.labels"))
+
+# Step 3: Fit a new model with log-transformed target
+log_model <- lm(as.formula(paste("log_sale ~", paste(attr(terms(final_model), "term.labels"), collapse = " + "))),
+                data = train_data)
+
+summary(log_model)
+# Perform stepwise selection again on the transformed target variable, if desired
+#log_stepwise_model <- stepAIC(log_model, direction = "both")
+#summary(log_stepwise_model)
+
+```
+
